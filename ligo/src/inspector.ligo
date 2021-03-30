@@ -19,15 +19,19 @@ function main (const p : param; const s : storage) : (list(operation)) * storage
   case p of
   | Query (q) -> block {
     (* preparing balance_of request and invoking FA2 *)
-    const bp : balance_of_param = record [
-      requests = q.requests;
-      callback =
-        (Operation.get_entrypoint("%response", Current.self_address) :
-          constract(list(balance_of_response)));
-    ];
-    const fa2 : contract(balance_of_param) = 
-      Operation.get_entrypoint("%balance_of", q.fa2);
-    const q_op = Operation.transaction(bp, 0mutez, fa2);
+
+    const bp : balance_of_param = case (Tezos.get_entrypoint_opt("%response", Tezos.self_address) : option(contract(list(balance_of_response)))) of 
+      Some (callback) -> record [
+        requests = q.requests;
+        callback = callback
+      ]
+    | None -> (failwith ("TODO: write proper error message here") : balance_of_param)
+    end;
+    const fa2 : contract(balance_of_param) = case (Tezos.get_entrypoint_opt("%balance_of", q.fa2): option(contract(balance_of_param))) of 
+      Some (t) -> t
+    | None -> (failwith ("TODO: write proper error message here") : contract(balance_of_param))
+    end;
+    const q_op = Tezos.transaction(bp, 0mutez, fa2);
   } with (list [q_op], s)
   | Response (responses) ->
     (* 

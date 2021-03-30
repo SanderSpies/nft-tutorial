@@ -44,7 +44,7 @@ function validate_update_operators_by_owner (const update : update_operator; con
   Generic implementation of the FA2 `%update_operators` entrypoint.
   Assumes that only the token owner can change its operators.
  *)
-function fa2_update_operators (const updates : list(operator); const storage : operator_storage) : operator_storage is block {
+function fa2_update_operators (const updates : list(update_operator); const storage : operator_storage) : operator_storage is block {
   const updater = Tezos.sender;
   function process_update (const ops : operator_storage; const update : update_operator) is block {
     const u = validate_update_operators_by_owner (update, updater); 
@@ -64,28 +64,31 @@ Create an operator validator function based on provided operator policy.
 function make_operator_validator (const tx_policy : operator_transfer_policy) : operator_validator is block {
   const x = case tx_policy of 
   | No_transfer -> (failwith (fa2_tx_denied) : bool * bool)
-  | Owner_transfer -> (true, false)
-  | Owner_or_operator_transfer -> (true, true)
+  | Owner_transfer -> (True, False)
+  | Owner_or_operator_transfer -> (True, True)
   end;
-  const can_owner_ts = x.0; 
+  const can_owner_tx = x.0; 
   const can_operator_tx = x.1;
-} with
-  function (const owner : address; const operator : address; const token_id : token_id; const ops_storage : operator_storage): is block {
-    failwith (9fa2_not_owner)
-
-  }
+  const inner = function (const owner : address; const operator : address; const token_id : token_id; const ops_storage : operator_storage):unit is
+    if (can_owner_tx and owner = operator)
+    then unit (* transfer by the owner *)
+    else if not (can_operator_tx)
+    then failwith (fa2_not_owner) (* an operator transfer not permitted by the policy *)
+    else if (Big_map.mem  ((owner, (operator, token_id)), ops_storage))
+    then unit (* the operator is permitted for the token_id *)
+    else failwith (fa2_not_operator) (* the operator is not permitted for the token_id *)
+} with inner
 
 (**
 Default implementation of the operator validation function.
 The default implicit `operator_transfer_policy` value is `Owner_or_operator_transfer`
  *)
-function default_operator_validator (const owner : address; const operator : address; const token_id : token_id; const ops_storage : operator_storage) : operator_validator is block {
-  if owner = operator
+function default_operator_validator (const owner : address; const operator : address; const token_id : token_id; const ops_storage : operator_storage) : unit is
+  if (owner = operator)
   then unit (* transfer by the owner *)
   else if Big_map.mem ((owner, (operator, token_id)), ops_storage)
   then unit (* the operator is permitted for the token_id *)
   else failwith (fa2_not_operator) (* the operator is not permitted for the token_id *)
-}
 
 (** 
 Validate operators for all transfers in the batch at once
@@ -98,6 +101,6 @@ function validate_operator (const tx_policy : operator_transfer_policy; const tx
       validator (tx.from_, Tezos.sender, dst.token_id ,ops_storage),
       tx.txs),
     txs)
-}
+} with unit
 
 #endif

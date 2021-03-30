@@ -6,20 +6,20 @@ type token_descriptor is record [
   id : token_id;
   symbol : string;
   name : string;
-  token_uri : string option;
+  token_uri : option(string);
   owner : address;
 ]
 
-function generate_asset_storage (const tokens : token_descriptor list, owner: address) : collection_storage = 
+function generate_asset_storage (const tokens : list(token_descriptor); const owner: address) : collection_storage is
   block {
     const ledger = List.fold (
-      function (const ledger : ledger, const td : token_descriptor) is 
+      function (const ledger : ledger; const td : token_descriptor) is 
         Big_map.add(td.id, td.owner, ledger),
       tokens,
       (Big_map.empty : ledger)
     );
     const metadata = List.fold (
-      function (const meta : token_metadata_storage , td : token_descriptor) is 
+      function (const meta : token_metadata_storage; const td : token_descriptor) is 
         block {
           const m0 : token_metadata = record [
             token_id  = td.id;
@@ -28,9 +28,10 @@ function generate_asset_storage (const tokens : token_descriptor list, owner: ad
             decimals  = 0n;
             extras    = (Map.empty : map(string, string))
           ];
-          let m1 = case td.token_uri of 
+          const m1 = case td.token_uri of 
             None -> m0
-          | Some (uri) -> m0 with record [extras = Map.add("token_uri", uri, m0.extras)];
+          | Some (uri) -> m0 with record [extras = Map.add("token_uri", uri, m0.extras)]
+          end
         } with Big_map.add(td.id, m1, meta),
       tokens,
       (Big_map.empty : token_metadata_storage)

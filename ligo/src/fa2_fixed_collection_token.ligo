@@ -32,30 +32,31 @@ permissions or constraints are violated.
 @param validate function that validates of the tokens from the particular owner can be transferred. 
  *)
 function transfer (
-  const txs : list(transfer), 
-  const validate : operator_validator, 
-  const ops_storage : operator_storage,
+  const txs : list(transfer);
+  const validate : operator_validator;
+  const ops_storage : operator_storage;
   const ledger : ledger) : ledger is block {
     (* process individual transfer *)
-    function make_transfer (const l : ledger, const tx : transfer) is 
+    function make_transfer (const l : ledger; const tx : transfer) is 
       List.fold (
-        function (const ll : ledger, const dst : transfer_destination) is block {
+        function (const ll : ledger; const dst : transfer_destination) is block {
           const u = validate (tx.from_, Tezos.sender, dst.token_id, ops_storage);
-          if dst.amount = 0n then 
+        } with
+          if (dst.amount = 0n) then 
             ll (* zero amount transfer, do nothing *)
-          else if dst.amount <> 1n (* for NFTs only one token per token type is available *)
-          then (failwith(fa2_insufficient_balance) : ledger)
+          else if (dst.amount =/= 1n) (* for NFTs only one token per token type is available *)
+          then (failwith(fa2_insufficient_balance): ledger)
           else block {
             const owner = Big_map.find_opt(dst.token_id, ll);
-            case owner of
-              None -> (failwith(fa2_token_undefined) : ledger)
-            | Some (o) -> block {
-              if o <> tx.from_ (* check that from_ address actually owns the token *)
+          } with 
+            case owner of              
+              Some (o) ->
+              if (o =/= tx.from_) (* check that from_ address actually owns the token *)
               then (failwith(fa2_insufficient_balance) : ledger)
               else Big_map.update(dst.token_id, Some(dst.to_), ll)
-            }
-          } 
-        },
+            | None -> (failwith(fa2_token_undefined) : ledger)
+            end
+        ,
         tx.txs,
         l
       )
@@ -65,33 +66,35 @@ function transfer (
 Retrieve the balances for the specified tokens and owners
 @return callback operation
 *)
-function get_balance (const p : balance_of_param, const ledger : ledger) : operation is block {
+function get_balance (const p : balance_of_param; const ledger : ledger) : operation is block {
   function to_balance (const r : balance_of_request) is block {
     const owner = Big_map.find_opt(r.token_id, ledger);
+  }
+  with
     case owner of 
-      None -> (failwith (fa2_token_undefined) : balance_of_response)
+      None -> (failwith (fa2_token_undefined): record[balance: nat; request: record[owner: address ; token_id : nat]])
     | Some (o) -> block {
       const bal = if o = r.owner then 1n else 0n;
     } with record [request = r; balance = bal]
-  }
+    end;
   const responses = List.map (to_balance, p.requests);
-} with Operation.transaction(responses, 0mutez, p.callback)
+} with Tezos.transaction(responses, 0mutez, p.callback)
 
-function fa2_collection_main (const param : fa2_entry_points, const storage : collection_storage) : (list (operation), collection_storage) is 
+function fa2_collection_main (const param : fa2_entry_points; const storage : collection_storage) : (list (operation) * collection_storage) is 
   case param of 
     | Transfer (txs) -> block {
       const new_ledger = transfer (txs, default_operator_validator, storage.operators, storage.ledger);
       const new_storage = storage with record [ ledger = new_ledger ]
-    } with (([] : operation list), new_storage)
+    } with ((list [] : list(operation)), new_storage)
     | Balance_of (p) -> block {
       const op = get_balance (p, storage.ledger);
-    } with ([op], storage)
+    } with (list [op], storage)
     | Update_operators (updates) -> block {
       const new_operators = fa2_update_operators(updates, storage.operators);
       const new_storage = storage with record [ operators = new_operators ];
-    } with (([] : operation list), new_storage)
+    } with ((list [] : list(operation)), new_storage)
     | Token_metadata_registry (callback) -> block {
-      const callback_op = Operation.transaction(Teos.self_address, 0mutez, callback);
-    } with ([callback_op], storage)
-
+      const callback_op = Tezos.transaction(Tezos.self_address, 0mutez, callback);
+    } with (list [callback_op], storage)
+  end
 #endif
